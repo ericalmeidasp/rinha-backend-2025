@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    networks:
+      - backend
+      - payment-processor
+    environment:
+      - GIN_MODE=release
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=rinha_backend
+    depends_on:
+      - postgres
+    deploy:
+      replicas: 2 
+      resources:
+        limits:
+          cpus: "0.55"
+          memory: "115MB"
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: rinha-postgres
+    hostname: postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=rinha_backend
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    ports:
+      - 54323:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - backend
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=4MB
+      -c max_connections=20
+      -c synchronous_commit=off
+      -c fsync=off
+      -c full_page_writes=off
+      -c effective_cache_size=64MB
+      -c wal_level=minimal
+      -c max_wal_senders=0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rinha_backend"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.35"
+          memory: "110MB"
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: rinha-nginx
+    hostname: nginx
+    ports:
+      - 9999:9999
+    volumes:
+      - ./nginx.conf.multi:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: "20MB"
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    driver: bridge
+  payment-processor:
+    external: true 

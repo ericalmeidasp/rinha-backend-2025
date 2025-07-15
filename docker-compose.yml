@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: rinha-backend-go
+    hostname: backend
+    networks:
+      - backend
+      - payment-processor
+    environment:
+      - GIN_MODE=release
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=rinha_backend
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: rinha-postgres
+    hostname: postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=rinha_backend
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - backend
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: rinha-nginx
+    hostname: nginx
+    ports:
+      - 9999:9999
+    volumes:
+      - ./nginx.conf.single:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - postgres
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+  payment-processor:
+    external: true
