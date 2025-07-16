@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"time"
 
@@ -42,8 +43,8 @@ func (p *PostgresDB) Connect() error {
 	}
 
 	// Configurar pool de conexões
-	p.db.SetMaxOpenConns(8) // Máximo de conexões abertas
-	p.db.SetMaxIdleConns(4) // Máximo de conexões ociosas
+	p.db.SetMaxOpenConns(10) // Máximo de conexões abertas
+	p.db.SetMaxIdleConns(5)  // Máximo de conexões ociosas
 	// p.db.SetConnMaxLifetime(5 * time.Minute) // Tempo máximo de vida da conexão
 	// p.db.SetConnMaxIdleTime(3 * time.Minute) // Tempo máximo ocioso
 
@@ -103,7 +104,7 @@ func (p *PostgresDB) AddPaymentsBatch(payments []Payment) error {
 		_, err := stmt.Exec(
 			payment.CorrelationID,
 			payment.Processor,
-			payment.Amount,
+			int64(math.Round(payment.Amount*100)),
 			payment.RequestedAt,
 		)
 		if err != nil {
@@ -159,7 +160,7 @@ func (p *PostgresDB) GetSummary(from, to *time.Time) (Summary, error) {
 	for rows.Next() {
 		var processor string
 		var totalRequests int
-		var totalAmount float64
+		var totalAmount int64 // Usar int64 para evitar problemas de precisão com float64
 
 		err := rows.Scan(&processor, &totalRequests, &totalAmount)
 		if err != nil {
@@ -168,7 +169,7 @@ func (p *PostgresDB) GetSummary(from, to *time.Time) (Summary, error) {
 		}
 
 		// Converter para big.Float para precisão
-		amountBig := new(big.Float).SetFloat64(totalAmount)
+		amountBig := new(big.Float).SetFloat64(float64(totalAmount) / 100.0)
 
 		if processor == "default" {
 			defaultSum.Add(defaultSum, amountBig)

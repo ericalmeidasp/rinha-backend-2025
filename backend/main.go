@@ -238,9 +238,15 @@ func startPaymentWorkers(n int) {
 func processPaymentJob(job PaymentJob) {
 
 	// Health-check do default
-	defaultHealth, err := getHealth("default", healthCheckDefaultURL)
+	//defaultHealth, err := getHealth("default", healthCheckDefaultURL)
 
-	fallbackHealth, err2 := getHealth("fallback", healthCheckFallbackURL)
+	//fallbackHealth, err2 := getHealth("fallback", healthCheckFallbackURL)
+	var err, err2 error
+
+	healthCacheMutex.Lock()
+	defaultHealth := healthCacheMap["default"].Result
+	fallbackHealth := healthCacheMap["fallback"].Result
+	healthCacheMutex.Unlock()
 
 	if !defaultHealth.Failing && !fallbackHealth.Failing {
 
@@ -307,6 +313,18 @@ func startPaymentFlushLoop() {
 	}()
 }
 
+func startHealthCheckLoop() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			getHealth("default", healthCheckDefaultURL)
+			getHealth("fallback", healthCheckFallbackURL)
+		}
+	}()
+}
+
 func main() {
 	if err := initDB(); err != nil {
 		log.Fatal("Failed to initialize database:", err)
@@ -317,6 +335,7 @@ func main() {
 	startPaymentWorkers(40)
 	// Inicia goroutine de flush periódico
 	startPaymentFlushLoop()
+	startHealthCheckLoop()
 
 	r := gin.Default()
 
