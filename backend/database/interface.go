@@ -33,9 +33,6 @@ type Database interface {
 	// Close fecha a conexão com o banco
 	Close() error
 
-	// AddPayment adiciona um pagamento ao banco
-	AddPayment(payment Payment) error
-
 	// AddPayment adiciona um pagamento ao banco em batch
 	AddPaymentsBatch(payments []Payment) error
 

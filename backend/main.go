@@ -71,7 +71,7 @@ func initDB() error {
 
 	dbType := os.Getenv("DB_TYPE")
 	if dbType == "" {
-		dbType = "sqlite"
+		dbType = "postgresql"
 	}
 	log.Printf("Database type: %s", dbType)
 
@@ -94,28 +94,6 @@ func initDB() error {
 	}
 
 	return fmt.Errorf("failed to connect to database after %d attempts: %w", maxRetries, err)
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func addPayment(processor string, cid string, amount float64, requestedAt time.Time) {
-	payment := database.Payment{
-		CorrelationID: cid,
-		Processor:     processor,
-		Amount:        amount,
-		RequestedAt:   requestedAt,
-	}
-
-	if err := db.AddPayment(payment); err != nil {
-		log.Printf("Error saving payment to database: %v", err)
-	} else {
-		log.Printf("Payment saved successfully: processor=%s, amount=%.2f", processor, amount)
-	}
 }
 
 func addPaymentBatch(processor string, cid string, amount float64, requestedAt time.Time) {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/big"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -43,8 +42,8 @@ func (p *PostgresDB) Connect() error {
 	}
 
 	// Configurar pool de conexões
-	p.db.SetMaxOpenConns(10) // Máximo de conexões abertas
-	p.db.SetMaxIdleConns(5)  // Máximo de conexões ociosas
+	p.db.SetMaxOpenConns(8) // Máximo de conexões abertas
+	p.db.SetMaxIdleConns(4) // Máximo de conexões ociosas
 	// p.db.SetConnMaxLifetime(5 * time.Minute) // Tempo máximo de vida da conexão
 	// p.db.SetConnMaxIdleTime(3 * time.Minute) // Tempo máximo ocioso
 
@@ -73,20 +72,6 @@ func (p *PostgresDB) Close() error {
 	}
 	if p.db != nil {
 		return p.db.Close()
-	}
-	return nil
-}
-
-// AddPayment adiciona um pagamento ao PostgreSQL
-func (p *PostgresDB) AddPayment(payment Payment) error {
-	_, err := p.insertStmt.Exec(
-		payment.CorrelationID,
-		payment.Processor,
-		payment.Amount,
-		payment.RequestedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("error saving payment: %w", err)
 	}
 	return nil
 }
@@ -122,28 +107,28 @@ func (p *PostgresDB) AddPaymentsBatch(payments []Payment) error {
 
 // GetSummary retorna o resumo dos pagamentos do PostgreSQL
 func (p *PostgresDB) GetSummary(from, to *time.Time) (Summary, error) {
-	var query string
-	var args []interface{}
+	args := []interface{}{}
+	where := ""
 
-	baseQuery := `
+	if from != nil && to != nil {
+		where = "WHERE requested_at BETWEEN $1 AND $2"
+		args = append(args, from, to)
+	} else if from != nil {
+		where = "WHERE requested_at >= $1"
+		args = append(args, from)
+	} else if to != nil {
+		where = "WHERE requested_at <= $1"
+		args = append(args, to)
+	}
+
+	query := fmt.Sprintf(`
 		SELECT processor, 
 		       COUNT(*) as total_requests, 
 		       SUM(amount) as total_amount
 		FROM payments
-	`
-
-	if from != nil && to != nil {
-		query = baseQuery + " WHERE requested_at BETWEEN $1 AND $2 GROUP BY processor"
-		args = []interface{}{from, to}
-	} else if from != nil {
-		query = baseQuery + " WHERE requested_at >= $1 GROUP BY processor"
-		args = []interface{}{from}
-	} else if to != nil {
-		query = baseQuery + " WHERE requested_at <= $1 GROUP BY processor"
-		args = []interface{}{to}
-	} else {
-		query = baseQuery + " GROUP BY processor"
-	}
+		%s
+		GROUP BY processor
+	`, where)
 
 	rows, err := p.db.Query(query, args...)
 	if err != nil {
@@ -151,16 +136,17 @@ func (p *PostgresDB) GetSummary(from, to *time.Time) (Summary, error) {
 	}
 	defer rows.Close()
 
-	// Usar math/big para somas precisas
-	defaultSum := new(big.Float)
-	fallbackSum := new(big.Float)
-	defaultCount := 0
-	fallbackCount := 0
+	var (
+		defaultAmount  float64
+		defaultCount   int
+		fallbackAmount float64
+		fallbackCount  int
+	)
 
 	for rows.Next() {
 		var processor string
 		var totalRequests int
-		var totalAmount int64 // Usar int64 para evitar problemas de precisão com float64
+		var totalAmount int64
 
 		err := rows.Scan(&processor, &totalRequests, &totalAmount)
 		if err != nil {
@@ -168,23 +154,19 @@ func (p *PostgresDB) GetSummary(from, to *time.Time) (Summary, error) {
 			continue
 		}
 
-		// Converter para big.Float para precisão
-		amountBig := new(big.Float).SetFloat64(float64(totalAmount) / 100.0)
+		amount := float64(totalAmount) / 100.0
 
-		if processor == "default" {
-			defaultSum.Add(defaultSum, amountBig)
+		switch processor {
+		case "default":
+			defaultAmount += amount
 			defaultCount = totalRequests
-		} else if processor == "fallback" {
-			fallbackSum.Add(fallbackSum, amountBig)
+		case "fallback":
+			fallbackAmount += amount
 			fallbackCount = totalRequests
 		}
 	}
 
-	// Converter de volta para float64 para o JSON
-	defaultAmount, _ := defaultSum.Float64()
-	fallbackAmount, _ := fallbackSum.Float64()
-
-	result := Summary{
+	return Summary{
 		Default: ProcessorSummary{
 			TotalRequests: defaultCount,
 			TotalAmount:   defaultAmount,
@@ -193,9 +175,7 @@ func (p *PostgresDB) GetSummary(from, to *time.Time) (Summary, error) {
 			TotalRequests: fallbackCount,
 			TotalAmount:   fallbackAmount,
 		},
-	}
-
-	return result, nil
+	}, nil
 }
 
 // Ping testa a conectividade com o PostgreSQL
@@ -205,7 +185,7 @@ func (p *PostgresDB) Ping() error {
 
 // PurgePayments remove todos os pagamentos do PostgreSQL
 func (p *PostgresDB) PurgePayments() error {
-	_, err := p.db.Exec("DELETE FROM payments")
+	_, err := p.db.Exec("TRUNCATE payments")
 	if err != nil {
 		return fmt.Errorf("error purging payments: %w", err)
 	}
