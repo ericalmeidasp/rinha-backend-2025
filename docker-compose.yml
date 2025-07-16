@@ -1,15 +1,16 @@
 version: '3.8'
 
 services:
-  backend:
+  backend_1:
     build: ./backend
-    container_name: rinha-backend-go
-    hostname: backend
+    container_name: app_backend_1
+    hostname: app_backend_1
     networks:
       - backend
       - payment-processor
     environment:
       - GIN_MODE=release
+      - DB_TYPE=postgres
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=postgres
@@ -17,6 +18,34 @@ services:
       - DB_NAME=rinha_backend
     depends_on:
       - postgres
+    deploy:
+      resources:
+        limits:
+          cpus: "0.425"
+          memory: "90MB"
+  
+  backend_2:      
+    build: ./backend
+    container_name: app_backend_2
+    hostname: app_backend_2
+    networks:
+      - backend
+      - payment-processor
+    environment:
+      - GIN_MODE=release
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=rinha_backend
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          cpus: "0.425"
+          memory: "90MB"
 
   postgres:
     image: postgres:17-alpine
@@ -26,10 +55,35 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_DB=rinha_backend
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    ports:
+      - 54323:5432
     volumes:
+      - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - backend
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=4MB
+      -c max_connections=20
+      -c synchronous_commit=off
+      -c fsync=off
+      -c full_page_writes=off
+      -c effective_cache_size=64MB
+      -c wal_level=minimal
+      -c max_wal_senders=0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rinha_backend"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "150MB"
 
   nginx:
     image: nginx:1.25-alpine
@@ -38,15 +92,23 @@ services:
     ports:
       - 9999:9999
     volumes:
-      - ./nginx.conf.single:/etc/nginx/nginx.conf:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - backend
-      - postgres
+      - backend_1
+      - backend_2
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: "20MB"
+
+volumes:
+  postgres_data:
 
 networks:
   backend:
     driver: bridge
   payment-processor:
-    external: true
+    external: true 
