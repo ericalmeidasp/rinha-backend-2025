@@ -121,10 +121,11 @@ func addPaymentBatch(processor string, cid string, amount float64, requestedAt t
 	paymentBufferMutex.Unlock()
 
 	if batchToFlush != nil {
-		err := db.AddPaymentsBatch(batchToFlush)
-		if err != nil {
-			log.Printf("erro no batch insert: %v", err)
-		}
+		go func(b []database.Payment) {
+			if err := db.AddPaymentsBatch(b); err != nil {
+				log.Printf("erro no flush automático: %v", err)
+			}
+		}(batchToFlush)
 	}
 }
 
@@ -157,7 +158,8 @@ func sendToProcessor(url string, req PaymentRequest, requestedTime time.Time) er
 		"requestedAt":   requestedTime.Format(time.RFC3339Nano),
 	}
 	jsonBody, _ := json.Marshal(body)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	client := &http.Client{Timeout: 1 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		fmt.Println("Error sending to processor", err)
 		return err
@@ -328,7 +330,8 @@ func main() {
 	startPaymentFlushLoop()
 	startHealthCheckLoop()
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 
 	r.POST("/payments", func(c *gin.Context) {
 		var req PaymentRequest
