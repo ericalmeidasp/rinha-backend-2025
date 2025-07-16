@@ -56,6 +56,9 @@ var (
 		"fallback": {},
 	}
 	healthCacheMutex sync.Mutex
+
+	defaultHealthLast  *healthCheckResult
+	fallbackHealthLast *healthCheckResult
 )
 
 // Estrutura para fila assíncrona de pagamentos
@@ -109,7 +112,7 @@ func addPaymentBatch(processor string, cid string, amount float64, requestedAt t
 	paymentBufferMutex.Lock()
 	paymentBuffer = append(paymentBuffer, payment)
 
-	if len(paymentBuffer) >= 100 {
+	if len(paymentBuffer) >= 25 {
 		// Faz uma cópia para não segurar o lock durante o insert
 		batchToFlush = make([]database.Payment, len(paymentBuffer))
 		copy(batchToFlush, paymentBuffer)
@@ -200,6 +203,13 @@ func getHealth(processor string, url string) (healthCheckResult, error) {
 	cache.Err = nil
 	cache.CheckedAt = now
 	healthCacheMutex.Unlock()
+
+	if processor == "default" {
+		defaultHealthLast = &result
+	} else if processor == "fallback" {
+		fallbackHealthLast = &result
+	}
+
 	return result, nil
 }
 
@@ -221,14 +231,17 @@ func processPaymentJob(job PaymentJob) {
 	//fallbackHealth, err2 := getHealth("fallback", healthCheckFallbackURL)
 	var err, err2 error
 
-	healthCacheMutex.Lock()
-	defaultHealth := healthCacheMap["default"].Result
-	fallbackHealth := healthCacheMap["fallback"].Result
-	healthCacheMutex.Unlock()
+	if defaultHealthLast == nil {
+		getHealth("default", healthCheckDefaultURL)
+	}
 
-	if !defaultHealth.Failing && !fallbackHealth.Failing {
+	if fallbackHealthLast == nil {
+		getHealth("fallback", healthCheckFallbackURL)
+	}
 
-		if defaultHealth.MinResponseTime <= fallbackHealth.MinResponseTime {
+	if !defaultHealthLast.Failing && !fallbackHealthLast.Failing {
+
+		if defaultHealthLast.MinResponseTime <= fallbackHealthLast.MinResponseTime {
 			err = sendToProcessor(defaultProcessorURL, job.Req, job.RequestedAt)
 			if err == nil {
 				addPaymentBatch("default", job.Req.CorrelationID, job.Req.Amount, job.RequestedAt)
@@ -242,7 +255,7 @@ func processPaymentJob(job PaymentJob) {
 		}
 	}
 
-	if !defaultHealth.Failing {
+	if !defaultHealthLast.Failing {
 
 		err = sendToProcessor(defaultProcessorURL, job.Req, job.RequestedAt)
 		if err == nil {
@@ -251,7 +264,7 @@ func processPaymentJob(job PaymentJob) {
 		}
 	}
 
-	if !defaultHealth.Failing {
+	if !fallbackHealthLast.Failing {
 
 		err2 = sendToProcessor(fallbackProcessorURL, job.Req, job.RequestedAt)
 		if err2 == nil {
@@ -267,7 +280,7 @@ func processPaymentJob(job PaymentJob) {
 
 func startPaymentFlushLoop() {
 	go func() {
-		ticker := time.NewTicker(1 * time.Second)
+		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
 		for range ticker.C {

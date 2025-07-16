@@ -42,8 +42,8 @@ func (p *PostgresDB) Connect() error {
 	}
 
 	// Configurar pool de conexões
-	p.db.SetMaxOpenConns(8) // Máximo de conexões abertas
-	p.db.SetMaxIdleConns(4) // Máximo de conexões ociosas
+	p.db.SetMaxOpenConns(6) // Máximo de conexões abertas
+	p.db.SetMaxIdleConns(3) // Máximo de conexões ociosas
 	// p.db.SetConnMaxLifetime(5 * time.Minute) // Tempo máximo de vida da conexão
 	// p.db.SetConnMaxIdleTime(3 * time.Minute) // Tempo máximo ocioso
 
