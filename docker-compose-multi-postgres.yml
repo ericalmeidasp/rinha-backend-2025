@@ -20,8 +20,8 @@ services:
       replicas: 2
       resources:
         limits:
-          cpus: "0.5"
-          memory: "115MB"
+          cpus: "0.33"
+          memory: "75MB"
 
   postgres:
     image: postgres:17-alpine
@@ -58,8 +58,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.35"
-          memory: "110MB"
+          cpus: "0.69"
+          memory: "180MB"
 
   nginx:
     image: nginx:1.25-alpine
