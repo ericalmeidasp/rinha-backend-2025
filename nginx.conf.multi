@@ -1,26 +1,37 @@
-events {}
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
 http {
+    access_log off;
+    error_log /dev/stderr warn;
+
     upstream go_api {
+        least_conn;
+
         server app_backend_1:8080;
         server app_backend_2:8080;
-        
-        # Configurações de load balancing
-        least_conn;  # Distribui para o servidor com menos conexões
+
+        keepalive 16;
     }
     
     server {
         listen 9999;
+
         location / {
             proxy_pass http://go_api;
-            proxy_set_header Host $host;
+
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             
-            # Configurações para load balancing
-            proxy_connect_timeout 5s;
-            proxy_send_timeout 10s;
-            proxy_read_timeout 10s;
+            proxy_connect_timeout 1s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
         }
     }
 } 
